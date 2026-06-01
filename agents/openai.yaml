@@ -1,0 +1,7 @@
+interface:
+  display_name: "TaskNotes Workflows"
+  short_description: "Author safe TaskNotes workflow notes."
+  default_prompt: "Use $tasknotes-workflows to draft a safe TaskNotes workflow note."
+
+policy:
+  allow_implicit_invocation: true
