@@ -7,7 +7,7 @@ description: Create, review, repair, or explain TaskNotes Workflows Markdown aut
 
 Author Markdown notes under `TaskNotes/Workflows/` unless another folder is configured. Frontmatter is executable configuration; preserve the user's Markdown body.
 
-Use `type: runtime_workflow`, `version: 1.0.0`, and `x-tasknotes.format_version: 2`. In an mdbase 0.3 collection, read `mdbase.yaml` and use its first `settings.explicit_type_keys` key instead of `type`; new TaskNotes v5 collections use `mdbase_type`. Omitted keys default to `type`; an explicitly empty list needs collection configuration. Do not install packs automatically.
+Use `type: runtime_workflow`, `version: 1.0.0`, and `x-tasknotes.format_version: 2`. In an mdbase 0.3 collection, read `mdbase.yaml` and use its first `settings.explicit_type_keys` key instead of `type`; new TaskNotes v5 collections use `mdbase_type`. Write only that key, not `type` as well; the runtime standard pack 0.2.1 or later accepts it. Omitted keys default to `type`; an explicitly empty list needs collection configuration. Do not install packs automatically.
 
 Keep mutating examples disabled by default. Give workflows, triggers and steps stable IDs. Triggers reference `event: { id, version }`; steps reference `action: { id, version }`. Use `for_each`, `run.limits.max_items`, `run.on_error`, and `run.concurrency` rather than legacy camelCase run fields.
 
