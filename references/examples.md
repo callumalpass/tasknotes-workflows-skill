@@ -1,136 +1,69 @@
-# Workflow Examples
+# Workflow examples
 
-## Manual Active Count
+Use the collection's configured type key in place of `type` where required. All examples start disabled.
+
+## Manual active-task count
 
 ```markdown
 ---
-type: tasknotes-workflow
-schemaVersion: 1
+type: runtime_workflow
 id: show-active-count
+version: 1.0.0
 name: Show active task count
 enabled: false
-description: Show a notice with the number of active tasks.
 triggers:
   - id: manual
-    type: manual
-conditions: []
+    event: { id: tasknotes-workflows.manual, version: 1.0.0 }
+    x-tasknotes: { type: manual }
 steps:
   - id: active
-    type: task.query
+    action: { id: task.query, version: 1.0.0 }
     input:
       query:
-        where:
-          field: task.status
-          op: eq
-          value: active
+        where: { field: task.status, op: eq, value: active }
         limit: 25
   - id: notice
-    type: notice.show
+    action: { id: notice.show, version: 1.0.0 }
     input:
-      message: "Active tasks: {{steps.active.count}}"
+      message:
+        $expr: '"Active tasks: " + string(steps.active.output.count)'
 run:
-  mode: sequential
-  noOverlap: true
-  source: tasknotes-workflows
-  maxTasks: 25
-  onError: stop
+  concurrency: { policy: skip }
+  limits: { max_items: 25, timeout: 30s }
+  on_error: stop
+x-tasknotes: { format_version: 2 }
 ---
 
 # Show active task count
 
-Run this manually from the command palette. Dry-run should show the notice text without mutating tasks.
+Dry-run first and check the selected tasks and count before enabling. This workflow reads tasks and shows a notice.
 ```
 
-## Morning Overdue Review
-
-```markdown
----
-type: tasknotes-workflow
-schemaVersion: 1
-id: morning-overdue-review
-name: Morning overdue review
-enabled: false
-description: Find overdue open tasks every morning and mark them high priority.
-triggers:
-  - id: every-morning
-    type: cron
-    schedule: "0 9 * * *"
-    timezone: local
-conditions: []
-steps:
-  - id: overdue
-    type: task.query
-    input:
-      query:
-        where:
-          all:
-            - field: task.due
-              op: lt
-              value:
-                fn: today
-            - field: task.status
-              op: notIn
-              value:
-                - done
-                - cancelled
-        sort:
-          - field: task.due
-            direction: asc
-        limit: 50
-        scope:
-          includeArchived: false
-  - id: mark-high
-    type: task.patch
-    forEach: "{{steps.overdue.tasks}}"
-    input:
-      task: "{{item.path}}"
-      patch:
-        priority: high
-run:
-  mode: sequential
-  noOverlap: true
-  source: tasknotes-workflows
-  maxTasks: 50
-  onError: continue
----
-
-# Morning overdue review
-
-Dry-run before enabling. Confirm the query selects only overdue incomplete tasks, then enable if the priority changes are desired.
-```
-
-## Grouped Status Digest
+## Start time when a task becomes active
 
 ```yaml
-type: tasknotes-workflow
-schemaVersion: 1
-id: grouped-status-digest
-name: Grouped status digest
+type: runtime_workflow
+id: start-time
+version: 1.0.0
+name: Start time when active
 enabled: false
-description: Show grouped counts for non-archived tasks.
 triggers:
-  - id: manual
-    type: manual
-conditions: []
+  - id: active
+    event: { id: task.status.changed, version: 1.0.0 }
+    if: { $expr: 'event.data.after.status == "active"' }
+    x-tasknotes: { type: tasknotes.event }
 steps:
-  - id: tasks
-    type: task.query
+  - id: start
+    action: { id: time.start, version: 1.0.0 }
     input:
-      query:
-        where:
-          field: task.archived
-          op: isFalse
-        group:
-          - field: task.status
-        limit: 100
-  - id: notice
-    type: notice.show
-    input:
-      message: "Found {{steps.tasks.count}} tasks across {{steps.tasks.groups.length}} status group(s)."
+      taskId: { $expr: event.data.taskId }
 run:
-  mode: sequential
-  noOverlap: true
-  source: tasknotes-workflows
-  maxTasks: 25
-  onError: stop
+  concurrency:
+    group: { $expr: event.data.taskId }
+    policy: queue
+  limits: { max_items: 1, timeout: 30s }
+  on_error: stop
+x-tasknotes: { format_version: 2 }
 ```
+
+Body guidance: verify the configured active status and dry-run a sample event. This starts a real timer, so enable automatic execution on one device only.

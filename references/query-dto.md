@@ -97,7 +97,7 @@ value:
 
 `task.query` outputs:
 
-- `tasks`: returned task records, usually used for `forEach`
+- `tasks`: returned task records, usually used for `for_each`
 - `count`: number of returned tasks
 - `total`: tasks in scope before filtering
 - `matched`: tasks matching `where` before `offset` and `limit`
