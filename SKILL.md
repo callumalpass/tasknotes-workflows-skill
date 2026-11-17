@@ -1,72 +1,58 @@
 ---
 name: tasknotes-workflows
-description: Use when creating, reviewing, repairing, or explaining TaskNotes Workflows Markdown automation files for Obsidian. Covers workflow frontmatter, triggers, typed steps, safe mutation defaults, TaskNotes runtime query DTOs, template references, dry-run guidance, and human-readable workflow note bodies.
+description: Create, review, repair, or explain TaskNotes Workflows Markdown automation for Obsidian using mdbase Runtime 0.2 records, CEL, and the TaskNotes runtime API.
 ---
 
 # TaskNotes Workflows
 
-Use this skill to author safe TaskNotes Workflows notes. A workflow is a Markdown note whose YAML frontmatter is executable configuration and whose body explains intent, assumptions, and dry-run checks.
+Author Markdown notes under `TaskNotes/Workflows/` unless another folder is configured. Frontmatter is executable configuration; preserve the user's Markdown body.
 
-## Core Workflow
+Use `type: runtime_workflow`, `version: 1.0.0`, and `x-tasknotes.format_version: 2`. In an mdbase 0.3 collection, read `mdbase.yaml` and use its first `settings.explicit_type_keys` key instead of `type`; new TaskNotes v5 collections use `mdbase_type`. Omitted keys default to `type`; an explicitly empty list needs collection configuration. Do not install packs automatically.
 
-1. Write workflow notes under `TaskNotes/Workflows/` unless the user specifies another folder.
-2. Use `type: tasknotes-workflow` and `schemaVersion: 1`.
-3. Prefer `enabled: false` for any workflow that mutates tasks or vault files.
-4. Use `triggers`, `conditions`, `steps`, and `run`; do not invent JavaScript, shell, HTTP, or untyped action blocks.
-5. Use typed TaskNotes steps for task changes and typed Obsidian steps for vault changes.
-6. Use `task.query` only with the canonical TaskNotes runtime task query DTO.
-7. Add `run.noOverlap: true`, a bounded `run.maxTasks`, and `run.onError`.
-8. Include a short Markdown body describing what the workflow does, what it mutates, and what to check in dry run.
+Keep mutating examples disabled by default. Give workflows, triggers and steps stable IDs. Triggers reference `event: { id, version }`; steps reference `action: { id, version }`. Use `for_each`, `run.limits.max_items`, `run.on_error`, and `run.concurrency` rather than legacy camelCase run fields.
 
-## Query Rule
+## CEL and events
 
-For `task.query`, never emit compact field-map queries or internal TaskNotes `FilterQuery` objects. Use the runtime DTO:
+Use an object with exactly one `$expr` key for CEL. Plain strings, including `{{...}}`, are literals. Do not generate Bases formulas or legacy templates for new workflows.
+
+Activation: `event` is a CloudEvent with payload under `event.data`; `workflow` and `trigger` are runtime records; `vars` are evaluated in dependency order; step outputs are `steps.<id>.output`; `item` is the current `for_each` item. Use brackets for hyphenated IDs, `today().addDays(3)` for date arithmetic, and `now()` for the captured instant. Variable dependencies require named/literal keys, not dynamic indexing.
+
+TaskNotes API events expose `event.data.taskId`, `taskPath`, `task`, `before`, `after`, and `changes: { field: { before, after } }` when present. Write transitions as trigger guards:
 
 ```yaml
-query:
-  where:
-    all:
-      - field: task.status
-        op: ne
-        value: done
-      - field: task.due
-        op: lte
-        value:
-          fn: today
-  sort:
-    - field: task.due
-      direction: asc
-  limit: 25
-  scope:
-    includeArchived: false
+triggers:
+  - id: started
+    event: { id: task.status.changed, version: 1.0.0 }
+    if:
+      $expr: 'event.data.before.status == "open" && event.data.after.status == "active"'
+    x-tasknotes:
+      type: tasknotes.event
 ```
 
-Load [references/query-dto.md](references/query-dto.md) when writing or reviewing non-trivial `task.query` inputs.
+Use `input.taskId: { $expr: event.data.taskId }` for supported TaskNotes v5 task reads/mutations, or `input.task` for a path. All task reads/writes use the TaskNotes runtime API. Semantic fields follow TaskNotes' configured mappings; arbitrary fields go under `patch.customFrontmatter` (`null` removes them).
 
-## Step Catalog
+For cross-application events/actions, the installed mdbase plugin ID is `mdbase-sync` (API 1, interop profile 0.1). **Allow plugin integrations** must be enabled. The bridge is ephemeral and does not execute workflows; this plugin executes them. Exactly one compatible action provider is required. Explicit `provider` selectors are only needed for intentional provider coupling.
 
-When an Obsidian runtime is available, inspect the live step catalog before relying on a step input shape:
+## Run policy
+
+Bound iteration with `run.limits.max_items`, use `run.limits.timeout` where appropriate, and choose `run.on_error: stop|continue`. Concurrency supports `skip|queue|replace|allow` with literal or CEL-valued groups (default workflow ID). Run idempotency defaults to `workflow.id:event.id:trigger.id`, with seven-day persistent reservations. Interop step keys append step ID and item index. Cron uses an IANA timezone or `local`; missed schedules coalesce once.
+
+Automatic runs should be enabled on one synced-vault device. The device-local **Run workflows on this device** setting defaults on for desktop and off for mobile; manual runs remain available. Do not promise exactly-once effects, distributed leases, durable queue recovery, or interrupted-run replay.
+
+## Query and catalog
+
+`task.query.input.query` must use the canonical TaskNotes runtime DTO, not compact field maps or internal `FilterQuery` objects. Load [references/query-dto.md](references/query-dto.md) for fields, operators, grouping and date values.
+
+When a live runtime is available, inspect the installed catalog:
 
 ```js
-const tasknotes = app.plugins.getPlugin("tasknotes")?.api;
-const workflows = tasknotes?.extensions.get("tasknotes-workflows");
-workflows?.listStepDefinitions();
+app.plugins.getPlugin("tasknotes")?.api.extensions.get("tasknotes-workflows")?.listStepDefinitions();
 ```
 
-Use `inputFields` as the contract for YAML input and `outputFields` as the contract for references like `{{steps.query.tasks}}`.
+Use `inputFields` and `outputFields` to verify action shapes. Read [references/workflow-schema.md](references/workflow-schema.md) for the complete format and execution limits, and [references/examples.md](references/examples.md) for runnable authoring patterns.
 
-## References
+## Existing workflows
 
-- Load [references/workflow-schema.md](references/workflow-schema.md) for frontmatter fields, trigger kinds, step categories, run policy, and template references.
-- Load [references/query-dto.md](references/query-dto.md) for runtime task query fields, operators, grouping, dates, and result outputs.
-- Load [references/examples.md](references/examples.md) when the user wants a concrete workflow pattern.
+Format v1 and older `workflow`/`tasknotes-workflow` notes still use Bases until explicitly migrated. Use the plugin's review → backup → apply → rollback migration. Unsupported conversions must be reported and the migrated workflow disabled with an explanation. Do not relabel an old expression as CEL without converting it. CEL workflow editing opens the YAML note; the legacy visual formula builder remains for v1 files.
 
-## Review Checklist
-
-- YAML parses and has a stable lowercase `id`.
-- Every trigger and step has a stable `id`.
-- Mutating workflows start disabled unless the user explicitly wants them enabled.
-- `forEach` expressions resolve to arrays and `run.maxTasks` is bounded.
-- Task batches use `forEach: "{{steps.query.tasks}}"`.
-- Template references are constrained to `workflow`, `trigger`, `vars`, `steps`, `item`, `today`, or `now`.
-- The body tells a human how to verify the workflow before enabling it.
+Include a short body explaining intent, mutations, assumptions, and dry-run checks. Verify CEL syntax, unique IDs, query DTOs, bounded iteration, and the exact installed action catalog before enabling a workflow.
